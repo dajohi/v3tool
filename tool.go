@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
@@ -8,28 +9,27 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
+	wallettypes "decred.org/dcrwallet/rpc/jsonrpc/types"
 	"github.com/decred/dcrd/blockchain/stake/v3"
 	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/txscript/v3"
 	"github.com/decred/dcrd/wire"
-	wallettypes "decred.org/dcrwallet/rpc/jsonrpc/types"
 	"github.com/jrick/wsrpc/v2"
 )
 
 const (
 	baseURL = "https://teststakepool.decred.org"
 
-	rpcURL = "wss://localhost:19109/ws"
+	rpcURL  = "wss://localhost:19110/ws"
 	rpcUser = "test"
 	rpcPass = "test"
 )
 
 func getPubKey() *GetPubKeyResponse {
-	resp, err := http.Get(baseURL + "/api/v3/getpubkey")
+	resp, err := http.Get(baseURL + "/api/pubkey")
 	if err != nil {
 		panic(err)
 	}
@@ -59,7 +59,7 @@ func getPubKey() *GetPubKeyResponse {
 }
 
 func getFee(pubKey ed25519.PublicKey) *GetFeeResponse {
-	resp, err := http.Get(baseURL + "/api/v3/getfee")
+	resp, err := http.Get(baseURL + "/api/fee")
 	if err != nil {
 		panic(err)
 	}
@@ -91,7 +91,6 @@ func getFee(pubKey ed25519.PublicKey) *GetFeeResponse {
 func getFeeAddress(ctx context.Context, c *wsrpc.Client, pubKey ed25519.PublicKey, ticket string) (*GetFeeAddressResponse, string) {
 
 	var privKeyStr string
-	q := url.Values{}
 	var getTransactionResult wallettypes.GetTransactionResult
 	err := c.Call(ctx, "gettransaction", &getTransactionResult, ticket, false)
 	if err != nil {
@@ -125,7 +124,7 @@ func getFeeAddress(ctx context.Context, c *wsrpc.Client, pubKey ed25519.PublicKe
 		panic(err)
 	}
 
-	msg := fmt.Sprintf("vsp v2 getfeeaddress %s", msgTx.TxHash().String())
+	msg := fmt.Sprintf("vsp v3 getfeeaddress %s", msgTx.TxHash().String())
 	var signature string
 	err = c.Call(ctx, "signmessage", &signature, addr.Address(), msg)
 	if err != nil {
@@ -137,14 +136,19 @@ func getFeeAddress(ctx context.Context, c *wsrpc.Client, pubKey ed25519.PublicKe
 		panic(err)
 	}
 
-	q.Add("ticketHash", msgTx.TxHash().String())
-	q.Add("signature", signature)
-
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v3/getfeeaddress", nil)
+	reqBytes, err := json.Marshal(GetFeeAddressRequest{
+		TicketHash: msgTx.TxHash().String(),
+		Signature:  signature,
+		Timestamp:  time.Now().Unix(),
+	})
 	if err != nil {
 		panic(err)
 	}
-	req.URL.RawQuery = q.Encode()
+
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/feeaddress", bytes.NewBuffer(reqBytes))
+	if err != nil {
+		panic(err)
+	}
 
 	var httpClient http.Client
 	resp, err := httpClient.Do(req)
@@ -200,7 +204,7 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%v\n", fundtxstr)
+	fmt.Printf("fundtxstr: %v\n", fundtxstr.Hex)
 
 	var signedTxstr = struct {
 		Hex      string `json:"hex"`
@@ -213,11 +217,23 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 	if !signedTxstr.Complete {
 		return fmt.Errorf("not all signed")
 	}
-	values := url.Values{}
-	values.Set("feeTx", signedTxstr.Hex)
-	values.Set("votingKey", privKeyWIF)
 
-	resp, err := http.PostForm(baseURL+"/api/v3/payfee", values)
+	reqBytes, err := json.Marshal(PayFeeRequest{
+		Hex:       []byte(signedTxstr.Hex),
+		VotingKey: privKeyWIF,
+		Timestamp: time.Now().Unix(),
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/payfee", bytes.NewBuffer(reqBytes))
+	if err != nil {
+		panic(err)
+	}
+
+	var httpClient http.Client
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		panic(err)
 	}
@@ -227,6 +243,7 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 	if err != nil {
 		panic(err)
 	}
+
 	sigStr := resp.Header.Get("VSP-Signature")
 	sig, err := hex.DecodeString(sigStr)
 	if err != nil {
@@ -263,14 +280,20 @@ func main() {
 
 	// Get list of tickets
 	var tickets wallettypes.GetTicketsResult
-	err = c.Call(ctx, "gettickets", &tickets, false)
+	includeImmature := true
+	err = c.Call(ctx, "gettickets", &tickets, includeImmature)
 	if err != nil {
 		panic(err)
 	}
 	if len(tickets.Hashes) == 0 {
 		panic("no tickets")
 	}
-	fmt.Printf("%d tickets", len(tickets.Hashes))
+
+	fmt.Printf("dcrwallet returned %d ticket(s):\n", len(tickets.Hashes))
+	for _, tkt := range tickets.Hashes {
+		fmt.Printf("    %s\n", tkt)
+	}
+
 	for i := 0; i < len(tickets.Hashes); i++ {
 		feeAddress, privKeyStr := getFeeAddress(ctx, c, pubKey.PubKey, tickets.Hashes[i])
 		if feeAddress == nil {
