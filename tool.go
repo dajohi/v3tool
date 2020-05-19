@@ -98,6 +98,7 @@ func getFeeAddress(ctx context.Context, c *wsrpc.Client, pubKey ed25519.PublicKe
 		return nil, ""
 	}
 	if getTransactionResult.Confirmations < 2 {
+		fmt.Println("gettransaction less than 2 confs")
 		return nil, ""
 	}
 
@@ -161,6 +162,8 @@ func getFeeAddress(ctx context.Context, c *wsrpc.Client, pubKey ed25519.PublicKe
 	if err != nil {
 		panic(err)
 	}
+	fmt.Printf("%+v\n", string(b))
+
 	sigStr := resp.Header.Get("VSP-Signature")
 	sig, err := hex.DecodeString(sigStr)
 	if err != nil {
@@ -214,6 +217,7 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 		Hex:       []byte(signedTx.Hex),
 		VotingKey: privKeyWIF,
 		Timestamp: time.Now().Unix(),
+		VoteBits:  4,
 	})
 	if err != nil {
 		panic(err)
@@ -235,6 +239,8 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 	if err != nil {
 		panic(err)
 	}
+
+	fmt.Printf("%+v\n", string(b))
 
 	sigStr := resp.Header.Get("VSP-Signature")
 	sig, err := hex.DecodeString(sigStr)
@@ -292,6 +298,7 @@ func main() {
 			continue
 		}
 		fmt.Printf("feeAddress: %v\n", feeAddress.FeeAddress)
+		fmt.Printf("privKeyStr: %v\n", privKeyStr)
 
 		err := payFee(ctx, c, privKeyStr, pubKey.PubKey, feeAddress.FeeAddress, fee.Fee)
 		if err != nil {
