@@ -136,6 +136,7 @@ func getFeeAddress(ctx context.Context, c *wsrpc.Client, pubKey ed25519.PublicKe
 	if err != nil {
 		panic(err)
 	}
+	fmt.Printf("privKeyStr: %s\n", privKeyStr)
 
 	reqBytes, err := json.Marshal(GetFeeAddressRequest{
 		TicketHash: msgTx.TxHash().String(),
@@ -182,7 +183,7 @@ func getFeeAddress(ctx context.Context, c *wsrpc.Client, pubKey ed25519.PublicKe
 	return &j, privKeyStr
 }
 
-func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25519.PublicKey, address string, fee float64) error {
+func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25519.PublicKey, ticketHash string, address string, fee float64) error {
 	fmt.Printf("payfee...\n")
 
 	amounts := make(map[string]float64)
@@ -214,10 +215,11 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 	}
 
 	reqBytes, err := json.Marshal(PayFeeRequest{
-		Hex:       signedTx.Hex,
-		VotingKey: privKeyWIF,
-		Timestamp: time.Now().Unix(),
-		VoteBits:  4,
+		FeeTx:      signedTx.Hex,
+		VotingKey:  privKeyWIF,
+		TicketHash: ticketHash,
+		Timestamp:  time.Now().Unix(),
+		VoteBits:   1,
 	})
 	if err != nil {
 		panic(err)
@@ -300,7 +302,7 @@ func main() {
 		fmt.Printf("feeAddress: %v\n", feeAddress.FeeAddress)
 		fmt.Printf("privKeyStr: %v\n", privKeyStr)
 
-		err := payFee(ctx, c, privKeyStr, pubKey.PubKey, feeAddress.FeeAddress, fee.Fee)
+		err := payFee(ctx, c, privKeyStr, pubKey.PubKey, tickets.Hashes[i], feeAddress.FeeAddress, fee.Fee)
 		if err != nil {
 			fmt.Printf("payFee: %v\n", err)
 		}
