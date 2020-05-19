@@ -25,7 +25,7 @@ type GetFeeAddressResponse struct {
 
 type PayFeeRequest struct {
 	Timestamp int64  `json:"timestamp"`
-	Hex       []byte `json:"feeTx"`
+	Hex       string `json:"feeTx"`
 	VotingKey string `json:"votingKey"`
 	VoteBits  uint16 `json:"voteBits"`
 }

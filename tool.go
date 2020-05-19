@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	baseURL = "https://teststakepool.decred.org"
+	baseURL = "http://127.0.0.1:3000"
 
 	rpcURL  = "wss://localhost:19110/ws"
 	rpcUser = "test"
@@ -214,7 +214,7 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 	}
 
 	reqBytes, err := json.Marshal(PayFeeRequest{
-		Hex:       []byte(signedTx.Hex),
+		Hex:       signedTx.Hex,
 		VotingKey: privKeyWIF,
 		Timestamp: time.Now().Unix(),
 		VoteBits:  4,
