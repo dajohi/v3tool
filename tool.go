@@ -190,36 +190,28 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%v\n", msgtxstr)
 
-	var fundtxstr = struct {
-		Hex string  `json:"hex"`
-		Fee float64 `json:"fee"`
-	}{}
 	zero := int32(0)
 	opt := wallettypes.FundRawTransactionOptions{
 		ConfTarget: &zero,
 	}
-	err = c.Call(ctx, "fundrawtransaction", &fundtxstr, msgtxstr, "default", &opt)
+	var fundTx wallettypes.FundRawTransactionResult
+	err = c.Call(ctx, "fundrawtransaction", &fundTx, msgtxstr, "default", &opt)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("fundtxstr: %v\n", fundtxstr.Hex)
 
-	var signedTxstr = struct {
-		Hex      string `json:"hex"`
-		Complete bool   `json:"complete"`
-	}{}
-	err = c.Call(ctx, "signrawtransaction", &signedTxstr, fundtxstr.Hex)
+	var signedTx wallettypes.SignRawTransactionResult
+	err = c.Call(ctx, "signrawtransaction", &signedTx, fundTx.Hex)
 	if err != nil {
 		return err
 	}
-	if !signedTxstr.Complete {
+	if !signedTx.Complete {
 		return fmt.Errorf("not all signed")
 	}
 
 	reqBytes, err := json.Marshal(PayFeeRequest{
-		Hex:       []byte(signedTxstr.Hex),
+		Hex:       []byte(signedTx.Hex),
 		VotingKey: privKeyWIF,
 		Timestamp: time.Now().Unix(),
 	})
@@ -255,7 +247,7 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 	}
 
 	var hash string
-	err = c.Call(ctx, "sendrawtransaction", &hash, signedTxstr.Hex)
+	err = c.Call(ctx, "sendrawtransaction", &hash, signedTx.Hex)
 	if err != nil {
 		fmt.Printf("failed to send tx: %v\n", err)
 	}
