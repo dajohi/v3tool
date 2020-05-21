@@ -43,12 +43,6 @@ type TicketStatusRequest struct {
 	Signature  string `json:"signature"`
 }
 
-type SetVote struct {
-	Timestamp  int64  `json:"timestamp"`
-	TicketHash string `json:"tickethash"`
-	Signature  string `json:"signature"`
-}
-
 type SetVoteChoicesRequest struct {
 	Timestamp   int64             `json:"timestamp"`
 	TicketHash  string            `json:"tickethash"`
