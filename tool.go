@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
@@ -29,12 +28,15 @@ const (
 	rpcPass = "test"
 )
 
+var c *wsrpc.Client
+var vspPubKey []byte
+
 func getPubKey() *GetPubKeyResponse {
 	resp, err := http.Get(baseURL + "/api/pubkey")
 	if err != nil {
 		panic(err)
 	}
-	sigStr := resp.Header.Get("VSP-Signature")
+	sigStr := resp.Header.Get("VSP-Server-Signature")
 	sig, err := hex.DecodeString(sigStr)
 	if err != nil {
 		panic(err)
@@ -59,7 +61,7 @@ func getPubKey() *GetPubKeyResponse {
 	return &j
 }
 
-func getFee(pubKey ed25519.PublicKey) *GetFeeResponse {
+func getFee() *GetFeeResponse {
 	resp, err := http.Get(baseURL + "/api/fee")
 	if err != nil {
 		panic(err)
@@ -69,15 +71,6 @@ func getFee(pubKey ed25519.PublicKey) *GetFeeResponse {
 	resp.Body.Close()
 	if err != nil {
 		panic(err)
-	}
-	sigStr := resp.Header.Get("VSP-Signature")
-	sig, err := hex.DecodeString(sigStr)
-	if err != nil {
-		panic(err)
-	}
-
-	if !ed25519.Verify(pubKey, b, sig) {
-		panic("bad signature")
 	}
 
 	var j GetFeeResponse
@@ -89,68 +82,34 @@ func getFee(pubKey ed25519.PublicKey) *GetFeeResponse {
 	return &j
 }
 
-func getFeeAddress(ctx context.Context, c *wsrpc.Client, pubKey ed25519.PublicKey, ticket string) (*GetFeeAddressResponse, string) {
-	msg := fmt.Sprintf("vsp v3 getfeeaddress %s", ticket)
-	signature, privKeyStr, err := signMsgGetPrivKey(ctx, c, ticket, msg)
-	if err != nil {
-		panic(err)
-	}
-
-	reqBytes, err := json.Marshal(GetFeeAddressRequest{
-		TicketHash: ticket,
-		Signature:  signature,
+func getFeeAddress(ticketHash string, commitmentAddr string) *GetFeeAddressResponse {
+	req := GetFeeAddressRequest{
+		TicketHash: ticketHash,
 		Timestamp:  time.Now().Unix(),
-	})
+	}
+	resp, err := signedHTTP("/api/feeaddress", http.MethodPost, commitmentAddr, req)
 	if err != nil {
 		panic(err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/feeaddress", bytes.NewBuffer(reqBytes))
-	if err != nil {
-		panic(err)
-	}
-
-	var httpClient http.Client
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-
-	b, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("feeaddress response: %+v\n", string(b))
-
-	sigStr := resp.Header.Get("VSP-Signature")
-	sig, err := hex.DecodeString(sigStr)
-	if err != nil {
-		panic(err)
-	}
-
-	if !ed25519.Verify(pubKey, b, sig) {
-		panic("bad signature")
-	}
+	fmt.Printf("feeaddress response: %+v\n", string(resp))
 
 	var j GetFeeAddressResponse
-	err = json.Unmarshal(b, &j)
+	err = json.Unmarshal(resp, &j)
 	if err != nil {
 		panic(err)
 	}
-	return &j, privKeyStr
+	return &j
 }
 
-func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25519.PublicKey, ticketHash string, address string, fee float64) error {
-	fmt.Printf("payfee...\n")
-
+func createFeeTx(feeAddress string, fee float64) (string, error) {
 	amounts := make(map[string]float64)
-	amounts[address] = 0.02
+	amounts[feeAddress] = 0.02
 
 	var msgtxstr string
-	err := c.Call(ctx, "createrawtransaction", &msgtxstr, nil, amounts)
+	err := c.Call(context.TODO(), "createrawtransaction", &msgtxstr, nil, amounts)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	zero := int32(0)
@@ -158,115 +117,78 @@ func payFee(ctx context.Context, c *wsrpc.Client, privKeyWIF string, pubKey ed25
 		ConfTarget: &zero,
 	}
 	var fundTx wallettypes.FundRawTransactionResult
-	err = c.Call(ctx, "fundrawtransaction", &fundTx, msgtxstr, "default", &opt)
+	err = c.Call(context.TODO(), "fundrawtransaction", &fundTx, msgtxstr, "default", &opt)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	var signedTx wallettypes.SignRawTransactionResult
-	err = c.Call(ctx, "signrawtransaction", &signedTx, fundTx.Hex)
+	err = c.Call(context.TODO(), "signrawtransaction", &signedTx, fundTx.Hex)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !signedTx.Complete {
-		return fmt.Errorf("not all signed")
+		return "", fmt.Errorf("not all signed")
 	}
+	return signedTx.Hex, nil
+}
 
-	reqBytes, err := json.Marshal(PayFeeRequest{
-		FeeTx:       signedTx.Hex,
+func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string) error {
+	req := PayFeeRequest{
+		FeeTx:       feeTx,
 		VotingKey:   privKeyWIF,
 		TicketHash:  ticketHash,
 		Timestamp:   time.Now().Unix(),
 		VoteChoices: map[string]string{"headercommitments": "yes"},
-	})
+	}
+
+	_, err := signedHTTP("/api/payfee", http.MethodPost, commitmentAddr, req)
 	if err != nil {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/payfee", bytes.NewBuffer(reqBytes))
+	return nil
+	}
+
+func getTicketStatus(ticketHash string, commitmentAddr string) error {
+	req := TicketStatusRequest{
+		Timestamp:  time.Now().Unix(),
+		TicketHash: ticketHash,
+	}
+
+	_, err := signedHTTP("/api/ticketstatus", http.MethodGet, commitmentAddr, req)
 	if err != nil {
 		return err
 	}
 
-	var httpClient http.Client
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	b, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return err
-	}
-	fmt.Printf("payfee response: %+v\n", string(b))
-
-	sigStr := resp.Header.Get("VSP-Signature")
-	sig, err := hex.DecodeString(sigStr)
-	if err != nil {
-		return err
-	}
-
-	if !ed25519.Verify(pubKey, b, sig) {
-		panic("bad signature")
-	}
-
-	// var hash string
-	// err = c.Call(ctx, "sendrawtransaction", &hash, signedTx.Hex)
-	// if err != nil {
-	// 	fmt.Printf("failed to send tx: %v\n", err)
-	// }
-	// fmt.Printf("%s\n", hash)
-	// fmt.Printf("%s\n", string(b))
 	return nil
 }
 
-func getTicketStatus(ctx context.Context, c *wsrpc.Client, ticketHash string) error {
-	timestamp := time.Now().Unix()
-	msg := fmt.Sprintf("vsp v3 ticketstatus %d %s", timestamp, ticketHash)
-	signature, _, err := signMsgGetPrivKey(ctx, c, ticketHash, msg)
+func setVoteChoices(ticketHash string, commitmentAddr string, choices map[string]string) error {
+	req := SetVoteChoicesRequest{
+		Timestamp:   time.Now().Unix(),
+		TicketHash:  ticketHash,
+		VoteChoices: choices,
+	}
+
+	_, err := signedHTTP("/api/setvotechoices", http.MethodPost, commitmentAddr, req)
 	if err != nil {
 		return err
 	}
 
-	reqBytes, err := json.Marshal(TicketStatusRequest{
-		Timestamp:  timestamp,
-		TicketHash: ticketHash,
-		Signature:  signature,
-	})
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/ticketstatus", bytes.NewBuffer(reqBytes))
-	if err != nil {
-		return err
-	}
-
-	var httpClient http.Client
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	b, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return err
-	}
-	fmt.Printf("ticketstatus response: %+v\n", string(b))
 	return nil
 }
 
 func main() {
-	pubKey := getPubKey()
-	fmt.Printf("pubkey: %x\n", pubKey.PubKey)
+	vspPubKey = getPubKey().PubKey
+	fmt.Printf("pubkey: %x\n", vspPubKey)
 
-	fee := getFee(pubKey.PubKey)
+	fee := getFee()
 	fmt.Printf("fee: %v\n", fee.Fee)
 
 	ctx := context.Background()
-	c, err := NewRPC(ctx, rpcURL, rpcUser, rpcPass)
+	var err error
+	c, err = NewRPC(ctx, rpcURL, rpcUser, rpcPass)
 	if err != nil {
 		panic(err)
 	}
@@ -289,32 +211,43 @@ func main() {
 	}
 
 	for i := 0; i < len(tickets.Hashes); i++ {
-		feeAddress, privKeyStr := getFeeAddress(ctx, c, pubKey.PubKey, tickets.Hashes[i])
+		privKeyStr, commitmentAddr, err := getPrivKeyAndCommitmentAddr(tickets.Hashes[i])
+		if err != nil {
+			panic(err)
+		}
+
+		feeAddress := getFeeAddress(tickets.Hashes[i], commitmentAddr)
 		if feeAddress == nil {
 			continue
 		}
 		fmt.Printf("feeAddress: %v\n", feeAddress.FeeAddress)
 		fmt.Printf("privKeyStr: %v\n", privKeyStr)
 
-		err := payFee(ctx, c, privKeyStr, pubKey.PubKey, tickets.Hashes[i], feeAddress.FeeAddress, fee.Fee)
+		feeTx, err := createFeeTx(feeAddress.FeeAddress, fee.Fee)
+		if err != nil {
+			fmt.Printf("createFeeTx error: %v\n", err)
+			break
+		}
+
+		err = payFee(feeTx, privKeyStr, tickets.Hashes[i], commitmentAddr)
 		if err != nil {
 			fmt.Printf("payFee error: %v\n", err)
 			break
 		}
 
-		err = getTicketStatus(ctx, c, tickets.Hashes[i])
+		err = getTicketStatus(tickets.Hashes[i], commitmentAddr)
 		if err != nil {
 			fmt.Printf("getTicketStatus error: %v\n", err)
 			break
 		}
 
-		err = setVoteChoices(ctx, c, tickets.Hashes[i], map[string]string{"headercommitments": "no"})
+		err = setVoteChoices(tickets.Hashes[i], commitmentAddr, map[string]string{"headercommitments": "no"})
 		if err != nil {
 			fmt.Printf("setVoteChoices error: %v\n", err)
 			break
 		}
 
-		err = getTicketStatus(ctx, c, tickets.Hashes[i])
+		err = getTicketStatus(tickets.Hashes[i], commitmentAddr)
 		if err != nil {
 			fmt.Printf("getTicketStatus error: %v\n", err)
 			break
@@ -323,47 +256,9 @@ func main() {
 	}
 }
 
-func setVoteChoices(ctx context.Context, c *wsrpc.Client, ticketHash string, choices map[string]string) error {
-	timestamp := time.Now().Unix()
-	msg := fmt.Sprintf("vsp v3 setvotechoices %d %s %v", timestamp, ticketHash, choices)
-	signature, _, err := signMsgGetPrivKey(ctx, c, ticketHash, msg)
-	if err != nil {
-		return err
-	}
-
-	reqBytes, err := json.Marshal(SetVoteChoicesRequest{
-		Timestamp:   timestamp,
-		TicketHash:  ticketHash,
-		Signature:   signature,
-		VoteChoices: choices,
-	})
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/api/setvotechoices", bytes.NewBuffer(reqBytes))
-	if err != nil {
-		return err
-	}
-
-	var httpClient http.Client
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	b, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return err
-	}
-	fmt.Printf("setvotechoices response: %+v\n", string(b))
-	return nil
-}
-
-func signMsgGetPrivKey(ctx context.Context, c *wsrpc.Client, ticketHash, msg string) (string, string, error) {
+func getPrivKeyAndCommitmentAddr(ticketHash string) (string, string, error) {
 	var getTransactionResult wallettypes.GetTransactionResult
-	err := c.Call(ctx, "gettransaction", &getTransactionResult, ticketHash, false)
+	err := c.Call(context.TODO(), "gettransaction", &getTransactionResult, ticketHash, false)
 	if err != nil {
 		fmt.Printf("gettransaction: %v\n", err)
 		return "", "", err
@@ -392,17 +287,20 @@ func signMsgGetPrivKey(ctx context.Context, c *wsrpc.Client, ticketHash, msg str
 		return "", "", err
 	}
 
-	var signature string
-	err = c.Call(ctx, "signmessage", &signature, addr.Address(), msg)
-	if err != nil {
-		return "", "", err
-	}
-
 	var privKeyStr string
-	err = c.Call(ctx, "dumpprivkey", &privKeyStr, submissionAddr[0].Address())
+	err = c.Call(context.TODO(), "dumpprivkey", &privKeyStr, submissionAddr[0].Address())
 	if err != nil {
 		panic(err)
 	}
 
-	return signature, privKeyStr, nil
+	return privKeyStr, addr.Address(), nil
+}
+
+func signMessage(commitmentAddr string, msg []byte) (string, error) {
+	var signature string
+	err := c.Call(context.TODO(), "signmessage", &signature, commitmentAddr, string(msg))
+	if err != nil {
+		return "", err
+	}
+	return signature, nil
 }

@@ -6,21 +6,17 @@ type GetPubKeyResponse struct {
 }
 
 type GetFeeResponse struct {
-	Fee       float64 `json:"fee"`
-	Signature string  `json:"signature"`
+	Fee float64 `json:"fee"`
 }
 
 type GetFeeAddressRequest struct {
 	Timestamp  int64  `json:"timestamp"`
 	TicketHash string `json:"tickethash"`
-	Signature  string `json:"signature"`
 }
 
 type GetFeeAddressResponse struct {
-	TicketHash          string `json:"tickethash"`
-	CommitmentSignature string `json:"commitmentsignature"`
-	FeeAddress          string `json:"feeaddress"`
-	Signature           string `json:"signature"`
+	TicketHash string `json:"tickethash"`
+	FeeAddress string `json:"feeaddress"`
 }
 
 type PayFeeRequest struct {
@@ -40,12 +36,10 @@ type PayFeeResponse struct {
 type TicketStatusRequest struct {
 	Timestamp  int64  `json:"timestamp"`
 	TicketHash string `json:"tickethash"`
-	Signature  string `json:"signature"`
 }
 
 type SetVoteChoicesRequest struct {
 	Timestamp   int64             `json:"timestamp"`
 	TicketHash  string            `json:"tickethash"`
-	Signature   string            `json:"commitmentsignature"`
 	VoteChoices map[string]string `json:"votechoices"`
 }
