@@ -14,7 +14,7 @@ import (
 // signedHTTP makes a request against a VSP API. The request will be JSON
 // encoded and signed using the provided commitment address. The signature of
 // the response is also validated using the VSPs pubkey.
-func signedHTTP(url, method, commitmentAddr string, request interface{}) ([]byte, error) {
+func signedHTTP(url, method, commitmentAddr string, vspPubKey []byte, request interface{}) ([]byte, error) {
 	reqBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
@@ -46,15 +46,28 @@ func signedHTTP(url, method, commitmentAddr string, request interface{}) ([]byte
 
 	fmt.Printf("\n%s response: %+v\n", url, string(b))
 
-	sigStr := resp.Header.Get("VSP-Server-Signature")
-	sig, err := hex.DecodeString(sigStr)
-	if err != nil {
-		return nil, fmt.Errorf("Error validating VSP signature: %v", err)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Non 200 response from server: %v", string(b))
 	}
 
-	if !ed25519.Verify(vspPubKey, b, sig) {
-		return nil, errors.New("Bad signature from VSP")
+	err = validateServerSignature(resp, b, vspPubKey)
+	if err != nil {
+		return nil, err
 	}
 
 	return b, nil
+}
+
+func validateServerSignature(resp *http.Response, body []byte, pubKey []byte) error {
+	sigStr := resp.Header.Get("VSP-Server-Signature")
+	sig, err := hex.DecodeString(sigStr)
+	if err != nil {
+		return fmt.Errorf("Error validating VSP signature: %v", err)
+	}
+
+	if !ed25519.Verify(pubKey, body, sig) {
+		return errors.New("Bad signature from VSP")
+	}
+
+	return nil
 }

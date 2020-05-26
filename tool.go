@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -29,67 +28,75 @@ const (
 )
 
 var c *wsrpc.Client
-var vspPubKey []byte
 
-func getPubKey() *GetPubKeyResponse {
+func getPubKey() (*GetPubKeyResponse, error) {
 	resp, err := http.Get(baseURL + "/api/pubkey")
 	if err != nil {
-		panic(err)
-	}
-	sigStr := resp.Header.Get("VSP-Server-Signature")
-	sig, err := hex.DecodeString(sigStr)
-	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	b, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
-		panic(err)
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Non 200 response from server: %v", string(b))
 	}
 
 	var j GetPubKeyResponse
 	err = json.Unmarshal(b, &j)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	if !ed25519.Verify(j.PubKey, b, sig) {
-		panic("bad signature")
+	err = validateServerSignature(resp, b, j.PubKey)
+	if err != nil {
+		return nil, err
 	}
 
-	return &j
+	return &j, nil
 }
 
-func getFee() *GetFeeResponse {
+func getFee(vspPubKey []byte) (*GetFeeResponse, error) {
 	resp, err := http.Get(baseURL + "/api/fee")
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	b, err := ioutil.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
-		panic(err)
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Non 200 response from server: %v", string(b))
 	}
 
 	var j GetFeeResponse
 	err = json.Unmarshal(b, &j)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	return &j
+	err = validateServerSignature(resp, b, vspPubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &j, nil
 }
 
-func getFeeAddress(ticketHash string, commitmentAddr string) *GetFeeAddressResponse {
+func getFeeAddress(ticketHash string, commitmentAddr string, vspPubKey []byte) (*GetFeeAddressResponse, error) {
 	req := GetFeeAddressRequest{
 		TicketHash: ticketHash,
 		Timestamp:  time.Now().Unix(),
 	}
-	resp, err := signedHTTP("/api/feeaddress", http.MethodPost, commitmentAddr, req)
+	resp, err := signedHTTP("/api/feeaddress", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	fmt.Printf("feeaddress response: %+v\n", string(resp))
@@ -97,9 +104,9 @@ func getFeeAddress(ticketHash string, commitmentAddr string) *GetFeeAddressRespo
 	var j GetFeeAddressResponse
 	err = json.Unmarshal(resp, &j)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return &j
+	return &j, nil
 }
 
 func createFeeTx(feeAddress string, fee float64) (string, error) {
@@ -133,7 +140,7 @@ func createFeeTx(feeAddress string, fee float64) (string, error) {
 	return signedTx.Hex, nil
 }
 
-func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string) error {
+func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string, vspPubKey []byte) error {
 	req := PayFeeRequest{
 		FeeTx:       feeTx,
 		VotingKey:   privKeyWIF,
@@ -142,21 +149,7 @@ func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string) error {
 		VoteChoices: map[string]string{"headercommitments": "yes"},
 	}
 
-	_, err := signedHTTP("/api/payfee", http.MethodPost, commitmentAddr, req)
-	if err != nil {
-		return err
-	}
-
-	return nil
-	}
-
-func getTicketStatus(ticketHash string, commitmentAddr string) error {
-	req := TicketStatusRequest{
-		Timestamp:  time.Now().Unix(),
-		TicketHash: ticketHash,
-	}
-
-	_, err := signedHTTP("/api/ticketstatus", http.MethodGet, commitmentAddr, req)
+	_, err := signedHTTP("/api/payfee", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return err
 	}
@@ -164,14 +157,28 @@ func getTicketStatus(ticketHash string, commitmentAddr string) error {
 	return nil
 }
 
-func setVoteChoices(ticketHash string, commitmentAddr string, choices map[string]string) error {
+func getTicketStatus(ticketHash string, commitmentAddr string, vspPubKey []byte) error {
+	req := TicketStatusRequest{
+		Timestamp:  time.Now().Unix(),
+		TicketHash: ticketHash,
+	}
+
+	_, err := signedHTTP("/api/ticketstatus", http.MethodGet, commitmentAddr, vspPubKey, req)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func setVoteChoices(ticketHash string, commitmentAddr string, vspPubKey []byte, choices map[string]string) error {
 	req := SetVoteChoicesRequest{
 		Timestamp:   time.Now().Unix(),
 		TicketHash:  ticketHash,
 		VoteChoices: choices,
 	}
 
-	_, err := signedHTTP("/api/setvotechoices", http.MethodPost, commitmentAddr, req)
+	_, err := signedHTTP("/api/setvotechoices", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return err
 	}
@@ -180,14 +187,23 @@ func setVoteChoices(ticketHash string, commitmentAddr string, choices map[string
 }
 
 func main() {
-	vspPubKey = getPubKey().PubKey
+	pubKeyResp, err := getPubKey()
+	if err != nil {
+		panic(err)
+	}
+
+	vspPubKey := pubKeyResp.PubKey
+
 	fmt.Printf("pubkey: %x\n", vspPubKey)
 
-	fee := getFee()
+	fee, err := getFee(vspPubKey)
+	if err != nil {
+		panic(err)
+	}
+
 	fmt.Printf("fee: %v\n", fee.Fee)
 
 	ctx := context.Background()
-	var err error
 	c, err = NewRPC(ctx, rpcURL, rpcUser, rpcPass)
 	if err != nil {
 		panic(err)
@@ -216,7 +232,10 @@ func main() {
 			panic(err)
 		}
 
-		feeAddress := getFeeAddress(tickets.Hashes[i], commitmentAddr)
+		feeAddress, err := getFeeAddress(tickets.Hashes[i], commitmentAddr, vspPubKey)
+		if err != nil {
+			panic(err)
+		}
 		if feeAddress == nil {
 			continue
 		}
@@ -229,25 +248,25 @@ func main() {
 			break
 		}
 
-		err = payFee(feeTx, privKeyStr, tickets.Hashes[i], commitmentAddr)
+		err = payFee(feeTx, privKeyStr, tickets.Hashes[i], commitmentAddr, vspPubKey)
 		if err != nil {
 			fmt.Printf("payFee error: %v\n", err)
 			break
 		}
 
-		err = getTicketStatus(tickets.Hashes[i], commitmentAddr)
+		err = getTicketStatus(tickets.Hashes[i], commitmentAddr, vspPubKey)
 		if err != nil {
 			fmt.Printf("getTicketStatus error: %v\n", err)
 			break
 		}
 
-		err = setVoteChoices(tickets.Hashes[i], commitmentAddr, map[string]string{"headercommitments": "no"})
+		err = setVoteChoices(tickets.Hashes[i], commitmentAddr, vspPubKey, map[string]string{"headercommitments": "no"})
 		if err != nil {
 			fmt.Printf("setVoteChoices error: %v\n", err)
 			break
 		}
 
-		err = getTicketStatus(tickets.Hashes[i], commitmentAddr)
+		err = getTicketStatus(tickets.Hashes[i], commitmentAddr, vspPubKey)
 		if err != nil {
 			fmt.Printf("getTicketStatus error: %v\n", err)
 			break
