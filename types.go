@@ -6,7 +6,7 @@ type GetPubKeyResponse struct {
 }
 
 type GetFeeResponse struct {
-	Fee float64 `json:"fee"`
+	FeePercentage float64 `json:"feepercentage"`
 }
 
 type GetFeeAddressRequest struct {
@@ -15,8 +15,9 @@ type GetFeeAddressRequest struct {
 }
 
 type GetFeeAddressResponse struct {
-	TicketHash string `json:"tickethash"`
-	FeeAddress string `json:"feeaddress"`
+	TicketHash string  `json:"tickethash"`
+	FeeAddress string  `json:"feeaddress"`
+	FeeAmount  float64 `json:"feeamount"`
 }
 
 type PayFeeRequest struct {

@@ -111,7 +111,7 @@ func getFeeAddress(ticketHash string, commitmentAddr string, vspPubKey []byte) (
 
 func createFeeTx(feeAddress string, fee float64) (string, error) {
 	amounts := make(map[string]float64)
-	amounts[feeAddress] = 0.02
+	amounts[feeAddress] = fee
 
 	var msgtxstr string
 	err := c.Call(context.TODO(), "createrawtransaction", &msgtxstr, nil, amounts)
@@ -201,7 +201,7 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("fee: %v\n", fee.Fee)
+	fmt.Printf("fee percentage: %v\n", fee.FeePercentage)
 
 	ctx := context.Background()
 	c, err = NewRPC(ctx, rpcURL, rpcUser, rpcPass)
@@ -242,7 +242,7 @@ func main() {
 		fmt.Printf("feeAddress: %v\n", feeAddress.FeeAddress)
 		fmt.Printf("privKeyStr: %v\n", privKeyStr)
 
-		feeTx, err := createFeeTx(feeAddress.FeeAddress, fee.Fee)
+		feeTx, err := createFeeTx(feeAddress.FeeAddress, feeAddress.FeeAmount)
 		if err != nil {
 			fmt.Printf("createFeeTx error: %v\n", err)
 			break
