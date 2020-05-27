@@ -29,8 +29,8 @@ const (
 
 var c *wsrpc.Client
 
-func getPubKey() (*GetPubKeyResponse, error) {
-	resp, err := http.Get(baseURL + "/api/pubkey")
+func getVspInfo() (*GetVspInfoResponse, error) {
+	resp, err := http.Get(baseURL + "/api/vspinfo")
 	if err != nil {
 		return nil, err
 	}
@@ -45,43 +45,15 @@ func getPubKey() (*GetPubKeyResponse, error) {
 		return nil, fmt.Errorf("Non 200 response from server: %v", string(b))
 	}
 
-	var j GetPubKeyResponse
+	fmt.Printf("vsptatus response: %+v\n", string(b))
+
+	var j GetVspInfoResponse
 	err = json.Unmarshal(b, &j)
 	if err != nil {
 		return nil, err
 	}
 
 	err = validateServerSignature(resp, b, j.PubKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return &j, nil
-}
-
-func getFee(vspPubKey []byte) (*GetFeeResponse, error) {
-	resp, err := http.Get(baseURL + "/api/fee")
-	if err != nil {
-		return nil, err
-	}
-
-	b, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Non 200 response from server: %v", string(b))
-	}
-
-	var j GetFeeResponse
-	err = json.Unmarshal(b, &j)
-	if err != nil {
-		return nil, err
-	}
-
-	err = validateServerSignature(resp, b, vspPubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -187,21 +159,15 @@ func setVoteChoices(ticketHash string, commitmentAddr string, vspPubKey []byte, 
 }
 
 func main() {
-	pubKeyResp, err := getPubKey()
+	vspStatusResp, err := getVspInfo()
 	if err != nil {
 		panic(err)
 	}
 
-	vspPubKey := pubKeyResp.PubKey
+	vspPubKey := vspStatusResp.PubKey
 
 	fmt.Printf("pubkey: %x\n", vspPubKey)
-
-	fee, err := getFee(vspPubKey)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Printf("fee percentage: %v\n", fee.FeePercentage)
+	fmt.Printf("fee percentage: %v\n", vspStatusResp.FeePercentage)
 
 	ctx := context.Background()
 	c, err = NewRPC(ctx, rpcURL, rpcUser, rpcPass)

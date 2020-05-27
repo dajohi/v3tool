@@ -1,8 +1,11 @@
 package main
 
-type GetPubKeyResponse struct {
-	Timestamp int64  `json:"timestamp"`
-	PubKey    []byte `json:"pubkey"`
+type GetVspInfoResponse struct {
+	Timestamp     int64   `json:"timestamp"`
+	PubKey        []byte  `json:"pubkey"`
+	FeePercentage float64 `json:"feepercentage"`
+	Closed        bool    `json:"closed"`
+	Network       string  `json:"network"`
 }
 
 type GetFeeResponse struct {
