@@ -14,6 +14,7 @@ import (
 	wallettypes "decred.org/dcrwallet/rpc/jsonrpc/types"
 	"github.com/decred/dcrd/blockchain/stake/v3"
 	"github.com/decred/dcrd/chaincfg/v3"
+	dcrdtypes "github.com/decred/dcrd/rpc/jsonrpc/types/v2"
 	"github.com/decred/dcrd/txscript/v3"
 	"github.com/decred/dcrd/wire"
 	"github.com/jrick/wsrpc/v2"
@@ -99,6 +100,29 @@ func createFeeTx(feeAddress string, fee float64) (string, error) {
 	err = c.Call(context.TODO(), "fundrawtransaction", &fundTx, msgtxstr, "default", &opt)
 	if err != nil {
 		return "", err
+	}
+
+	tx := wire.NewMsgTx()
+	err = tx.Deserialize(hex.NewDecoder(strings.NewReader(fundTx.Hex)))
+
+	transactions := make([]dcrdtypes.TransactionInput, 0)
+
+	for _, v := range tx.TxIn {
+		transactions = append(transactions, dcrdtypes.TransactionInput{
+			Txid: v.PreviousOutPoint.Hash.String(),
+			Vout: v.PreviousOutPoint.Index,
+		})
+	}
+
+	var locked bool
+	unlock := false
+	err = c.Call(context.TODO(), "lockunspent", &locked, unlock, transactions)
+	if err != nil {
+		return "", err
+	}
+
+	if !locked {
+		return "", errors.New("unspent output not locked")
 	}
 
 	var signedTx wallettypes.SignRawTransactionResult
@@ -200,7 +224,8 @@ func main() {
 
 		feeAddress, err := getFeeAddress(tickets.Hashes[i], commitmentAddr, vspPubKey)
 		if err != nil {
-			panic(err)
+			fmt.Printf("getFeeAddress error: %v\n", err)
+			continue
 		}
 		if feeAddress == nil {
 			continue
@@ -217,7 +242,7 @@ func main() {
 		err = payFee(feeTx, privKeyStr, tickets.Hashes[i], commitmentAddr, vspPubKey)
 		if err != nil {
 			fmt.Printf("payFee error: %v\n", err)
-			break
+			continue
 		}
 
 		err = getTicketStatus(tickets.Hashes[i], commitmentAddr, vspPubKey)
