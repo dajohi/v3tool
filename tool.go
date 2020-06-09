@@ -14,6 +14,7 @@ import (
 	wallettypes "decred.org/dcrwallet/rpc/jsonrpc/types"
 	"github.com/decred/dcrd/blockchain/stake/v3"
 	"github.com/decred/dcrd/chaincfg/v3"
+	"github.com/decred/dcrd/dcrutil/v3"
 	dcrdtypes "github.com/decred/dcrd/rpc/jsonrpc/types/v2"
 	"github.com/decred/dcrd/txscript/v3"
 	"github.com/decred/dcrd/wire"
@@ -82,9 +83,9 @@ func getFeeAddress(ticketHash string, commitmentAddr string, vspPubKey []byte) (
 	return &j, nil
 }
 
-func createFeeTx(feeAddress string, fee float64) (string, error) {
+func createFeeTx(feeAddress string, fee int64) (string, error) {
 	amounts := make(map[string]float64)
-	amounts[feeAddress] = fee
+	amounts[feeAddress] = dcrutil.Amount(fee).ToCoin()
 
 	var msgtxstr string
 	err := c.Call(context.TODO(), "createrawtransaction", &msgtxstr, nil, amounts)
