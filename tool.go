@@ -22,8 +22,7 @@ import (
 )
 
 const (
-	baseURL = "http://127.0.0.1:3000"
-
+	baseURL = "http://localhost:8800"
 	rpcURL  = "wss://localhost:19110/ws"
 	rpcUser = "test"
 	rpcPass = "test"
@@ -63,8 +62,9 @@ func getVspInfo() (*GetVspInfoResponse, error) {
 	return &j, nil
 }
 
-func getFeeAddress(ticketHash string, commitmentAddr string, vspPubKey []byte) (*GetFeeAddressResponse, error) {
+func getFeeAddress(ticketHex, ticketHash, commitmentAddr string, vspPubKey []byte) (*GetFeeAddressResponse, error) {
 	req := GetFeeAddressRequest{
+		TicketHex:  ticketHex,
 		TicketHash: ticketHash,
 		Timestamp:  time.Now().Unix(),
 	}
@@ -218,12 +218,12 @@ func main() {
 	}
 
 	for i := 0; i < len(tickets.Hashes); i++ {
-		privKeyStr, commitmentAddr, err := getPrivKeyAndCommitmentAddr(tickets.Hashes[i])
+		hex, privKeyStr, commitmentAddr, err := getTicketDetails(tickets.Hashes[i])
 		if err != nil {
 			panic(err)
 		}
 
-		feeAddress, err := getFeeAddress(tickets.Hashes[i], commitmentAddr, vspPubKey)
+		feeAddress, err := getFeeAddress(hex, tickets.Hashes[i], commitmentAddr, vspPubKey)
 		if err != nil {
 			fmt.Printf("getFeeAddress error: %v\n", err)
 			continue
@@ -267,35 +267,37 @@ func main() {
 	}
 }
 
-func getPrivKeyAndCommitmentAddr(ticketHash string) (string, string, error) {
+// getTicketDetails returns the ticket hex, privkey for voting, and the
+// commitment address.
+func getTicketDetails(ticketHash string) (string, string, string, error) {
 	var getTransactionResult wallettypes.GetTransactionResult
 	err := c.Call(context.TODO(), "gettransaction", &getTransactionResult, ticketHash, false)
 	if err != nil {
 		fmt.Printf("gettransaction: %v\n", err)
-		return "", "", err
+		return "", "", "", err
 	}
 
 	msgTx := wire.NewMsgTx()
 	if err = msgTx.Deserialize(hex.NewDecoder(strings.NewReader(getTransactionResult.Hex))); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if len(msgTx.TxOut) < 2 {
-		return "", "", errors.New("msgTx.TxOut < 2")
+		return "", "", "", errors.New("msgTx.TxOut < 2")
 	}
 
 	const scriptVersion = 0
 	_, submissionAddr, _, err := txscript.ExtractPkScriptAddrs(scriptVersion,
 		msgTx.TxOut[0].PkScript, chaincfg.TestNet3Params())
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if len(submissionAddr) != 1 {
-		return "", "", errors.New("submissionAddr != 1")
+		return "", "", "", errors.New("submissionAddr != 1")
 	}
 	addr, err := stake.AddrFromSStxPkScrCommitment(msgTx.TxOut[1].PkScript,
 		chaincfg.TestNet3Params())
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	var privKeyStr string
@@ -304,7 +306,7 @@ func getPrivKeyAndCommitmentAddr(ticketHash string) (string, string, error) {
 		panic(err)
 	}
 
-	return privKeyStr, addr.Address(), nil
+	return getTransactionResult.Hex, privKeyStr, addr.Address(), nil
 }
 
 func signMessage(commitmentAddr string, msg []byte) (string, error) {
