@@ -73,8 +73,6 @@ func getFeeAddress(ticketHex, ticketHash, commitmentAddr string, vspPubKey []byt
 		return nil, err
 	}
 
-	fmt.Printf("feeaddress response: %+v\n", string(resp))
-
 	var j GetFeeAddressResponse
 	err = json.Unmarshal(resp, &j)
 	if err != nil {
