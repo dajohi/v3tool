@@ -31,7 +31,7 @@ const (
 var c *wsrpc.Client
 
 func getVspInfo() (*GetVspInfoResponse, error) {
-	resp, err := http.Get(baseURL + "/api/vspinfo")
+	resp, err := http.Get(baseURL + "/api/v3/vspinfo")
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +46,7 @@ func getVspInfo() (*GetVspInfoResponse, error) {
 		return nil, fmt.Errorf("Non 200 response from server: %v", string(b))
 	}
 
-	fmt.Printf("vsptatus response: %+v\n", string(b))
+	fmt.Printf("vspinfo response: %+v\n", string(b))
 
 	var j GetVspInfoResponse
 	err = json.Unmarshal(b, &j)
@@ -68,7 +68,7 @@ func getFeeAddress(ticketHex, ticketHash, commitmentAddr string, vspPubKey []byt
 		TicketHash: ticketHash,
 		Timestamp:  time.Now().Unix(),
 	}
-	resp, err := signedHTTP("/api/feeaddress", http.MethodPost, commitmentAddr, vspPubKey, req)
+	resp, err := signedHTTP("/api/v1/feeaddress", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string, vspPubK
 		VoteChoices: map[string]string{"headercommitments": "yes"},
 	}
 
-	_, err := signedHTTP("/api/payfee", http.MethodPost, commitmentAddr, vspPubKey, req)
+	_, err := signedHTTP("/api/v1/payfee", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func getTicketStatus(ticketHash string, commitmentAddr string, vspPubKey []byte)
 		TicketHash: ticketHash,
 	}
 
-	_, err := signedHTTP("/api/ticketstatus", http.MethodGet, commitmentAddr, vspPubKey, req)
+	_, err := signedHTTP("/api/v1/ticketstatus", http.MethodGet, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func setVoteChoices(ticketHash string, commitmentAddr string, vspPubKey []byte, 
 		VoteChoices: choices,
 	}
 
-	_, err := signedHTTP("/api/setvotechoices", http.MethodPost, commitmentAddr, vspPubKey, req)
+	_, err := signedHTTP("/api/v1/setvotechoices", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return err
 	}
