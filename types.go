@@ -39,7 +39,6 @@ type PayFeeResponse struct {
 }
 
 type TicketStatusRequest struct {
-	Timestamp  int64  `json:"timestamp"`
 	TicketHash string `json:"tickethash"`
 }
 

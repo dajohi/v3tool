@@ -154,11 +154,10 @@ func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string, vspPubK
 
 func getTicketStatus(ticketHash string, commitmentAddr string, vspPubKey []byte) error {
 	req := TicketStatusRequest{
-		Timestamp:  time.Now().Unix(),
 		TicketHash: ticketHash,
 	}
 
-	_, err := signedHTTP("/api/v3/ticketstatus", http.MethodGet, commitmentAddr, vspPubKey, req)
+	_, err := signedHTTP("/api/v3/ticketstatus", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return err
 	}
