@@ -22,8 +22,7 @@ import (
 )
 
 const (
-	baseURL = "http://127.0.0.1:3000"
-
+	baseURL = "http://localhost:8800"
 	rpcURL  = "wss://localhost:19110/ws"
 	rpcUser = "test"
 	rpcPass = "test"
@@ -32,7 +31,7 @@ const (
 var c *wsrpc.Client
 
 func getVspInfo() (*GetVspInfoResponse, error) {
-	resp, err := http.Get(baseURL + "/api/vspinfo")
+	resp, err := http.Get(baseURL + "/api/v3/vspinfo")
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +46,7 @@ func getVspInfo() (*GetVspInfoResponse, error) {
 		return nil, fmt.Errorf("Non 200 response from server: %v", string(b))
 	}
 
-	fmt.Printf("vsptatus response: %+v\n", string(b))
+	fmt.Printf("vspinfo response: %+v\n", string(b))
 
 	var j GetVspInfoResponse
 	err = json.Unmarshal(b, &j)
@@ -63,17 +62,16 @@ func getVspInfo() (*GetVspInfoResponse, error) {
 	return &j, nil
 }
 
-func getFeeAddress(ticketHash string, commitmentAddr string, vspPubKey []byte) (*GetFeeAddressResponse, error) {
+func getFeeAddress(ticketHex, ticketHash, commitmentAddr string, vspPubKey []byte) (*GetFeeAddressResponse, error) {
 	req := GetFeeAddressRequest{
+		TicketHex:  ticketHex,
 		TicketHash: ticketHash,
 		Timestamp:  time.Now().Unix(),
 	}
-	resp, err := signedHTTP("/api/feeaddress", http.MethodPost, commitmentAddr, vspPubKey, req)
+	resp, err := signedHTTP("/api/v3/feeaddress", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Printf("feeaddress response: %+v\n", string(resp))
 
 	var j GetFeeAddressResponse
 	err = json.Unmarshal(resp, &j)
@@ -146,7 +144,7 @@ func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string, vspPubK
 		VoteChoices: map[string]string{"headercommitments": "yes"},
 	}
 
-	_, err := signedHTTP("/api/payfee", http.MethodPost, commitmentAddr, vspPubKey, req)
+	_, err := signedHTTP("/api/v3/payfee", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return err
 	}
@@ -156,11 +154,10 @@ func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string, vspPubK
 
 func getTicketStatus(ticketHash string, commitmentAddr string, vspPubKey []byte) error {
 	req := TicketStatusRequest{
-		Timestamp:  time.Now().Unix(),
 		TicketHash: ticketHash,
 	}
 
-	_, err := signedHTTP("/api/ticketstatus", http.MethodGet, commitmentAddr, vspPubKey, req)
+	_, err := signedHTTP("/api/v3/ticketstatus", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return err
 	}
@@ -175,7 +172,7 @@ func setVoteChoices(ticketHash string, commitmentAddr string, vspPubKey []byte, 
 		VoteChoices: choices,
 	}
 
-	_, err := signedHTTP("/api/setvotechoices", http.MethodPost, commitmentAddr, vspPubKey, req)
+	_, err := signedHTTP("/api/v3/setvotechoices", http.MethodPost, commitmentAddr, vspPubKey, req)
 	if err != nil {
 		return err
 	}
@@ -218,12 +215,12 @@ func main() {
 	}
 
 	for i := 0; i < len(tickets.Hashes); i++ {
-		privKeyStr, commitmentAddr, err := getPrivKeyAndCommitmentAddr(tickets.Hashes[i])
+		hex, privKeyStr, commitmentAddr, err := getTicketDetails(tickets.Hashes[i])
 		if err != nil {
 			panic(err)
 		}
 
-		feeAddress, err := getFeeAddress(tickets.Hashes[i], commitmentAddr, vspPubKey)
+		feeAddress, err := getFeeAddress(hex, tickets.Hashes[i], commitmentAddr, vspPubKey)
 		if err != nil {
 			fmt.Printf("getFeeAddress error: %v\n", err)
 			continue
@@ -267,35 +264,37 @@ func main() {
 	}
 }
 
-func getPrivKeyAndCommitmentAddr(ticketHash string) (string, string, error) {
+// getTicketDetails returns the ticket hex, privkey for voting, and the
+// commitment address.
+func getTicketDetails(ticketHash string) (string, string, string, error) {
 	var getTransactionResult wallettypes.GetTransactionResult
 	err := c.Call(context.TODO(), "gettransaction", &getTransactionResult, ticketHash, false)
 	if err != nil {
 		fmt.Printf("gettransaction: %v\n", err)
-		return "", "", err
+		return "", "", "", err
 	}
 
 	msgTx := wire.NewMsgTx()
 	if err = msgTx.Deserialize(hex.NewDecoder(strings.NewReader(getTransactionResult.Hex))); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if len(msgTx.TxOut) < 2 {
-		return "", "", errors.New("msgTx.TxOut < 2")
+		return "", "", "", errors.New("msgTx.TxOut < 2")
 	}
 
 	const scriptVersion = 0
 	_, submissionAddr, _, err := txscript.ExtractPkScriptAddrs(scriptVersion,
 		msgTx.TxOut[0].PkScript, chaincfg.TestNet3Params())
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if len(submissionAddr) != 1 {
-		return "", "", errors.New("submissionAddr != 1")
+		return "", "", "", errors.New("submissionAddr != 1")
 	}
 	addr, err := stake.AddrFromSStxPkScrCommitment(msgTx.TxOut[1].PkScript,
 		chaincfg.TestNet3Params())
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	var privKeyStr string
@@ -304,7 +303,7 @@ func getPrivKeyAndCommitmentAddr(ticketHash string) (string, string, error) {
 		panic(err)
 	}
 
-	return privKeyStr, addr.Address(), nil
+	return getTransactionResult.Hex, privKeyStr, addr.Address(), nil
 }
 
 func signMessage(commitmentAddr string, msg []byte) (string, error) {

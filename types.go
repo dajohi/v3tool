@@ -15,6 +15,7 @@ type GetFeeResponse struct {
 type GetFeeAddressRequest struct {
 	Timestamp  int64  `json:"timestamp"`
 	TicketHash string `json:"tickethash"`
+	TicketHex  string `json:"tickethex"`
 }
 
 type GetFeeAddressResponse struct {
@@ -38,7 +39,6 @@ type PayFeeResponse struct {
 }
 
 type TicketStatusRequest struct {
-	Timestamp  int64  `json:"timestamp"`
 	TicketHash string `json:"tickethash"`
 }
 
