@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/ed25519"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,7 +60,7 @@ func signedHTTP(url, method, commitmentAddr string, vspPubKey []byte, request in
 
 func validateServerSignature(resp *http.Response, body []byte, pubKey []byte) error {
 	sigStr := resp.Header.Get("VSP-Server-Signature")
-	sig, err := hex.DecodeString(sigStr)
+	sig, err := base64.StdEncoding.DecodeString(sigStr)
 	if err != nil {
 		return fmt.Errorf("Error validating VSP signature: %v", err)
 	}
