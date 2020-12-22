@@ -135,13 +135,13 @@ func createFeeTx(feeAddress string, fee int64) (string, error) {
 	return signedTx.Hex, nil
 }
 
-func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string, vspPubKey []byte) error {
+func payFee(feeTx, privKeyWIF, ticketHash string, commitmentAddr string, vspPubKey []byte, voteChoices map[string]string) error {
 	req := PayFeeRequest{
 		FeeTx:       feeTx,
 		VotingKey:   privKeyWIF,
 		TicketHash:  ticketHash,
 		Timestamp:   time.Now().Unix(),
-		VoteChoices: map[string]string{"headercommitments": "yes"},
+		VoteChoices: voteChoices,
 	}
 
 	_, err := signedHTTP("/api/v3/payfee", http.MethodPost, commitmentAddr, vspPubKey, req)
@@ -166,6 +166,9 @@ func getTicketStatus(ticketHash string, commitmentAddr string, vspPubKey []byte)
 }
 
 func setVoteChoices(ticketHash string, commitmentAddr string, vspPubKey []byte, choices map[string]string) error {
+	// Sleep to ensure a new timestamp. vspd will reject old/reused timestamps.
+	time.Sleep(1001 * time.Millisecond)
+
 	req := SetVoteChoicesRequest{
 		Timestamp:   time.Now().Unix(),
 		TicketHash:  ticketHash,
@@ -237,7 +240,8 @@ func main() {
 			break
 		}
 
-		err = payFee(feeTx, privKeyStr, tickets.Hashes[i], commitmentAddr, vspPubKey)
+		voteChoices := map[string]string{"headercommitments": "no"}
+		err = payFee(feeTx, privKeyStr, tickets.Hashes[i], commitmentAddr, vspPubKey, voteChoices)
 		if err != nil {
 			fmt.Printf("payFee error: %v\n", err)
 			continue
@@ -249,7 +253,8 @@ func main() {
 			break
 		}
 
-		err = setVoteChoices(tickets.Hashes[i], commitmentAddr, vspPubKey, map[string]string{"headercommitments": "no"})
+		voteChoices["headercommitments"] = "yes"
+		err = setVoteChoices(tickets.Hashes[i], commitmentAddr, vspPubKey, voteChoices)
 		if err != nil {
 			fmt.Printf("setVoteChoices error: %v\n", err)
 			break
