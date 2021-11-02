@@ -64,7 +64,10 @@ func getVspInfo() (*GetVspInfoResponse, error) {
 
 func getFeeAddress(ticketHex, ticketHash, commitmentAddr string, vspPubKey []byte) (*GetFeeAddressResponse, error) {
 	req := GetFeeAddressRequest{
-		TicketHex:  ticketHex,
+		TicketHex: ticketHex,
+		// Fake parent hex - in the real world this obviously would not match
+		// the ticketHex.
+		ParentHex:  ticketHex,
 		TicketHash: ticketHash,
 		Timestamp:  time.Now().Unix(),
 	}
