@@ -32,6 +32,8 @@ func signedHTTP(url, method, commitmentAddr string, vspPubKey []byte, request in
 
 	req.Header.Add("VSP-Client-Signature", signature)
 
+	fmt.Printf("\n%s request: %+v\n", url, string(reqBytes))
+
 	var httpClient http.Client
 	resp, err := httpClient.Do(req)
 	if err != nil {

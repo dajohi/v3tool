@@ -212,7 +212,7 @@ func main() {
 		panic("no tickets")
 	}
 
-	fmt.Printf("dcrwallet returned %d ticket(s):\n", len(tickets.Hashes))
+	fmt.Printf("\ndcrwallet returned %d ticket(s):\n", len(tickets.Hashes))
 	for _, tkt := range tickets.Hashes {
 		fmt.Printf("    %s\n", tkt)
 	}
@@ -222,6 +222,9 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+
+		fmt.Printf("\nProcessing ticket:\n\tHash: %s\n\tHex: %s\n\tprivKeyStr: %s\n\tcommitmentAddr: %s\n",
+			tickets.Hashes[i], hex, privKeyStr, commitmentAddr)
 
 		feeAddress, err := getFeeAddress(hex, tickets.Hashes[i], commitmentAddr, vspPubKey)
 		if err != nil {
