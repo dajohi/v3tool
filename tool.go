@@ -243,7 +243,7 @@ func main() {
 			break
 		}
 
-		voteChoices := map[string]string{"headercommitments": "no"}
+		voteChoices := map[string]string{"autorevocations": "no"}
 		err = payFee(feeTx, privKeyStr, tickets.Hashes[i], commitmentAddr, vspPubKey, voteChoices)
 		if err != nil {
 			fmt.Printf("payFee error: %v\n", err)
@@ -256,7 +256,7 @@ func main() {
 			break
 		}
 
-		voteChoices["headercommitments"] = "yes"
+		voteChoices["autorevocations"] = "yes"
 		err = setVoteChoices(tickets.Hashes[i], commitmentAddr, vspPubKey, voteChoices)
 		if err != nil {
 			fmt.Printf("setVoteChoices error: %v\n", err)
